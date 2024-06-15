@@ -1,15 +1,13 @@
 const express = require('express');
-const dbConnect = require('./db');
+const pool = require('./db');
 const bcrypt = require("bcrypt");
 const router = express.Router();
 
 router.post('/products', async (req, res) => {
     const { name, price, description, category, imageUrl } = req.body;
-  
+    let connection;
     try {
-      const connection = await dbConnect();
-  
-
+      connection = await pool.getConnection();
       const [result] = await connection.execute(
         'INSERT INTO product (name, category, description, img_url, price) VALUES (?, ?, ?, ?, ?)',
         [name, category, description, imageUrl, price]
@@ -24,15 +22,17 @@ router.post('/products', async (req, res) => {
     } catch (error) {
       console.error('Error adding product:', error);
       res.status(500).json({ message: 'Error adding product' });
+    }finally {
+      if (connection) connection.release();
     }
   });
   
 
   router.delete('/products', async (req, res) => {
     const { productId } = req.query;
-  
+    let connection;
     try {
-      const connection = await dbConnect();
+      connection = await pool.getConnection();;
   
 
       const [result] = await connection.execute(
@@ -49,15 +49,17 @@ router.post('/products', async (req, res) => {
     } catch (error) {
       console.error('Error deleting product:', error);
       res.status(500).json({ message: 'Error deleting product' });
+    }finally {
+      if (connection) connection.release();
     }
   });
   
 
   router.put('/products', async (req, res) => {
     const { productId, name, description, price, imgUrl, category } = req.body;
-  
+    let connection;
     try {
-      const connection = await dbConnect();
+      connection = await pool.getConnection();;
   
 
       const [result] = await connection.execute(
@@ -82,6 +84,8 @@ router.post('/products', async (req, res) => {
     } catch (error) {
       console.error('Error updating product:', error);
       res.status(500).json({ message: 'Error updating product' });
+    }finally {
+      if (connection) connection.release();
     }
   });
   
@@ -89,9 +93,10 @@ router.post('/products', async (req, res) => {
   router.get('/products', async (req, res) => {
     const { userInput } = req.query;
     const pattern = `%${userInput}%`;
-  
+    let connection;
+    
     try {
-      const connection = await dbConnect();
+      connection = await pool.getConnection();
       const [result] = await connection.execute(
         'SELECT * FROM product WHERE description LIKE ? OR category LIKE ?',
         [pattern, pattern]
@@ -111,15 +116,18 @@ router.post('/products', async (req, res) => {
     } catch (error) {
       console.error('Error searching products:', error);
       res.status(500).json({ message: 'Error searching products' });
+    }finally {
+      if (connection) connection.release();
+      // console.log("connection end")
     }
   });
 
 router.put('/products', async (req, res) => {
     const productId = req.query.productId;
     const { name, category, price, imgUrl, description } = req.body;
-  
+    let connection;
     try {
-      const connection = await dbConnect();
+      connection = await pool.getConnection();
       try {
 
         const [result] = await connection.execute(
@@ -137,6 +145,8 @@ router.put('/products', async (req, res) => {
     } catch (error) {
       console.error('Error updating product:', error);
       res.status(500).json({ message: 'Internal Server Error' });
+    }finally {
+      if (connection) connection.release();
     }
   });
 
@@ -150,29 +160,37 @@ router.post('/signup', async (req, res) => {
     } else if (password.length < 4) {
         res.json({ message: 'The length of the Password should be above 3 characters', status: 404 });
     } else {
-        const connection = await dbConnect();
-        if (connection) {
-            try {
-                const [existingUser] = await connection.execute("SELECT * FROM users WHERE email = ?", [email]);
-                if (existingUser.length > 0) {
-                    res.json({ message: 'Email already exists', status: 404 });
-                } else {
-                    const encodePassword = await bcrypt.hash(password, 10);
-                    await connection.execute(
-                        "INSERT INTO users (name, mobile_number, email, password, adderss) VALUES (?, ?, ?, ?, ?)",
-                        [userName, phoneNumber, email, encodePassword, adderss]
-                    );
-                    res.json({ message: 'Registration Success', status: 200 });
-                }
-            } catch (error) {
-                console.error(error);
-                res.status(500).json({ message: 'Error while creating user', status: 502 });
-            } finally {
-                connection.end();
-            }
-        } else {
-            res.status(500).json({ message: 'Database connection failed' });
+        let connection;
+        try{
+          connection = await pool.getConnection();;
+          if (connection) {
+              try {
+                  const [existingUser] = await connection.execute("SELECT * FROM users WHERE email = ?", [email]);
+                  if (existingUser.length > 0) {
+                      res.json({ message: 'Email already exists', status: 404 });
+                  } else {
+                      const encodePassword = await bcrypt.hash(password, 10);
+                      await connection.execute(
+                          "INSERT INTO users (name, mobile_number, email, password, adderss) VALUES (?, ?, ?, ?, ?)",
+                          [userName, phoneNumber, email, encodePassword, adderss]
+                      );
+                      res.json({ message: 'Registration Success', status: 200 });
+                  }
+              } catch (error) {
+                  console.error(error);
+                  res.status(500).json({ message: 'Error while creating user', status: 502 });
+              }finally {
+                if (connection) connection.release();
+              }
+          } else {
+              res.status(500).json({ message: 'Database connection failed' });
+          }
+        }catch(error){
+          res.status(500).json({ message: 'Error while creating user', status: 502 });
+        }finally {
+          if (connection) connection.release();
         }
+        
     }
 });
 
@@ -182,9 +200,9 @@ router.post('/login', async (req, res) => {
   if (!email || !password) {
       return res.status(400).json({ message: 'Please enter email and password', status: 400 });
   }
-
+  let connection;
   try {
-      const connection = await dbConnect();
+      connection = await pool.getConnection();;
       const [rows] = await connection.execute('SELECT * FROM users WHERE email = ?', [email]);
 
       if (rows.length > 0) {
@@ -227,101 +245,139 @@ router.post('/login', async (req, res) => {
   } catch (error) {
       console.error('Error while login:', error);
       res.json({ message: 'Error while login', status: 502 });
+  }finally {
+    if (connection) connection.release();
   }
 });
 
 router.post('/Cart', async (req, res) => {
     const { userId, productId } = req.body;
-    const connection = await dbConnect();
-    if (connection) {
-        try {
-            const [result] = await connection.execute("SELECT * FROM cart WHERE user_id = ? AND product_id = ?", [userId, productId]);
-            if (result.length > 0) {
-                res.json({ message: 'Success', status: 200 });
-            } else {
-                await connection.execute("INSERT INTO cart (user_id, product_id, quantity) VALUES (?, ?, 1)", [userId, productId]);
-                res.json({ message: 'Success', status: 200 });
-            }
-        } catch (error) {
-            console.error(error);
-            res.status(500).json({ message: 'Error', status: 404 });
-        } finally {
-            connection.end();
-        }
-    } else {
-        res.status(500).json({ message: 'Database connection failed' });
+    let connection;
+    try{
+      connection = await pool.getConnection();;
+      if (connection) {
+          try {
+              const [result] = await connection.execute("SELECT * FROM cart WHERE user_id = ? AND product_id = ?", [userId, productId]);
+              if (result.length > 0) {
+                  res.json({ message: 'Success', status: 200 });
+              } else {
+                  await connection.execute("INSERT INTO cart (user_id, product_id, quantity) VALUES (?, ?, 1)", [userId, productId]);
+                  res.json({ message: 'Success', status: 200 });
+              }
+          } catch (error) {
+              console.error(error);
+              res.status(500).json({ message: 'Error', status: 404 });
+          }finally {
+            if (connection) connection.release();
+          }
+      } else {
+          res.status(500).json({ message: 'Database connection failed' });
+      }
+    }catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error', status: 404 });
+    }finally {
+      if (connection) connection.release();
     }
+    
 });
 
 router.delete('/Cart', async (req, res) => {
     const { userId, productId } = req.query;
     // console.log(req.query)
-    const connection = await dbConnect();
-    if (connection) {
-        try {
-            await connection.execute("DELETE FROM cart WHERE user_id = ? AND product_id = ?", [userId, productId]);
-            const [result] = await connection.execute("SELECT * FROM cart WHERE user_id = ? AND product_id = ?", [userId, productId]);
-            if (result.length === 0) {
-                res.json({ message: 'Success', status: 200 });
-            } else {
-                res.json({ message: 'Error', status: 404 });
-            }
-        } catch (error) {
-            console.error(error);
-            res.status(500).json({ message: 'Error', status: 404 });
-        } finally {
-            connection.end();
-        }
-    } else {
-        res.status(500).json({ message: 'Database connection failed' });
-    }
+    let connection;
+    try{
+      connection = await pool.getConnection();;
+      if (connection) {
+          try {
+              await connection.execute("DELETE FROM cart WHERE user_id = ? AND product_id = ?", [userId, productId]);
+              const [result] = await connection.execute("SELECT * FROM cart WHERE user_id = ? AND product_id = ?", [userId, productId]);
+              if (result.length === 0) {
+                  res.json({ message: 'Success', status: 200 });
+              } else {
+                  res.json({ message: 'Error', status: 404 });
+              }
+          } catch (error) {
+              console.error(error);
+              res.status(500).json({ message: 'Error', status: 404 });
+          }finally {
+            if (connection) connection.release();
+          }
+      } else {
+          res.status(500).json({ message: 'Database connection failed' });
+      }
+    }catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Error', status: 404 });
+  }finally {
+    if (connection) connection.release();
+  }
+    
 });
 
 router.put('/Cart', async (req, res) => {
     const { userId, productId, quantity } = req.body;
-    const connection = await dbConnect();
-    if (connection) {
-        try {
-            await connection.execute("UPDATE cart SET quantity = ? WHERE user_id = ? AND product_id = ?", [quantity, userId, productId]);
-            const [result] = await connection.execute("SELECT * FROM cart WHERE user_id = ? AND product_id = ?", [userId, productId]);
-            if (result.length !== 0) {
-                res.json({ message: 'Success', status: 200 });
-            } else {
-                res.json({ message: 'Error', status: 404 });
-            }
-        } catch (error) {
-            console.error(error);
-            res.status(500).json({ message: 'Error', status: 404 });
-        } finally {
-            connection.end();
-        }
-    } else {
-        res.status(500).json({ message: 'Database connection failed' });
+    let connection;
+    try{
+      connection = await pool.getConnection();;
+      if (connection) {
+          try {
+              await connection.execute("UPDATE cart SET quantity = ? WHERE user_id = ? AND product_id = ?", [quantity, userId, productId]);
+              const [result] = await connection.execute("SELECT * FROM cart WHERE user_id = ? AND product_id = ?", [userId, productId]);
+              if (result.length !== 0) {
+                  res.json({ message: 'Success', status: 200 });
+              } else {
+                  res.json({ message: 'Error', status: 404 });
+              }
+          } catch (error) {
+              console.error(error);
+              res.status(500).json({ message: 'Error', status: 404 });
+          }finally {
+            if (connection) connection.release();
+          }
+      } else {
+          res.status(500).json({ message: 'Database connection failed' });
+      }
+    }catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error', status: 404 });
+    }finally {
+      if (connection) connection.release();
     }
+    
 });
 
 router.get('/Cart/cartItems', async (req, res) => {
     const { userId } = req.query;
-    const connection = await dbConnect();
-    if (connection) {
-        try {
-            const [cart] = await connection.execute(
-                `SELECT p.*, c.quantity 
-                FROM product p 
-                JOIN cart c ON p.product_id = c.product_id 
-                WHERE c.user_id = ?`,
-                [userId]
-            );
-            res.status(200).json({ message: 'Success', status: 200, products: cart });
-        } catch (error) {
-            console.error(error);
-            res.status(500).json({ message: 'Error', status: 404 });
-        } finally {
-            connection.end();
-        }
-    } else {
-        res.status(500).json({ message: 'Database connection failed' });
+    let connection;
+    try{
+      connection = await pool.getConnection();;
+      if (connection) {
+          try {
+              const [cart] = await connection.execute(
+                  `SELECT p.*, c.quantity 
+                  FROM product p 
+                  JOIN cart c ON p.product_id = c.product_id 
+                  WHERE c.user_id = ?`,
+                  [userId]
+              );
+              res.status(200).json({ message: 'Success', status: 200, products: cart });
+          } catch (error) {
+              console.error(error);
+              res.status(500).json({ message: 'Error', status: 404 });
+          }finally {
+            if (connection) connection.release();
+          }
+      } else {
+          res.status(500).json({ message: 'Database connection failed' });
+      }
+    }catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error', status: 404 });
+    }finally {
+      if (connection) connection.release();
     }
+    
 });
 
 
@@ -333,9 +389,9 @@ router.post('/Order', async (req, res) => {
       return res.status(400).json({ message: 'Missing required fields', status: 400 });
   }
   buyingItems.push({ totalPrice });
-
+  let connection;
   try {
-      const connection = await dbConnect();
+      connection = await pool.getConnection();;
       await connection.execute(
           `INSERT INTO \`order\` (user_id, order_item) VALUES (?, ?)`,
           [userId, JSON.stringify(buyingItems)]
@@ -344,7 +400,8 @@ router.post('/Order', async (req, res) => {
   } catch (error) {
       console.error('Error inserting order:', error);
       res.status(500).json({ message: 'Error', status: 500 });
-  } finally {
+  }finally {
+    if (connection) connection.release();
   }
 });
 
@@ -353,26 +410,35 @@ router.post('/Order', async (req, res) => {
 
 router.get('/Order', async (req, res) => {
     const { userId } = req.query;
-    const connection = await dbConnect();
-    if (connection) {
-        try {
-            const [orders] = await connection.execute(
-                `SELECT p.*, o.quantity, o.total_price 
-                FROM product p 
-                JOIN orders o ON p.product_id = o.product_id 
-                WHERE o.user_id = ?`,
-                [userId]
-            );
-            res.json(orders);
-        } catch (error) {
-            console.error(error);
-            res.status(500).json({ message: 'Error', status: 404 });
-        } finally {
-            connection.end();
-        }
-    } else {
-        res.status(500).json({ message: 'Database connection failed' });
+    let connection;
+    try{
+      connection = await pool.getConnection();;
+      if (connection) {
+          try {
+              const [orders] = await connection.execute(
+                  `SELECT p.*, o.quantity, o.total_price 
+                  FROM product p 
+                  JOIN orders o ON p.product_id = o.product_id 
+                  WHERE o.user_id = ?`,
+                  [userId]
+              );
+              res.json(orders);
+          } catch (error) {
+              console.error(error);
+              res.status(500).json({ message: 'Error', status: 404 });
+          }finally {
+            if (connection) connection.release();
+          }
+      } else {
+          res.status(500).json({ message: 'Database connection failed' });
+      }
+    }catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error', status: 404 });
+    }finally {
+      if (connection) connection.release();
     }
+    
 });
 
 router.put('/user', async (req, res) => {
@@ -386,9 +452,9 @@ router.put('/user', async (req, res) => {
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: 'Invalid email format', status: 400 });
     }
-  
+    let connection;
     try {
-      const connection = await dbConnect();
+      connection = await pool.getConnection();;
       const query = `UPDATE users
                      SET name = ?, email = ?, mobile_number = ?, adderss = ?
                      WHERE user_id = ?`;
@@ -404,26 +470,38 @@ router.put('/user', async (req, res) => {
     } catch (error) {
       console.error('Error updating user details:', error);
       res.status(500).json({ message: 'Internal server error', status: 500 });
+    }finally {
+      if (connection) connection.release();
     }
   });
   function isValidEmail(email) {
     return /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/.test(email);
   }
+
 router.get('/getusers', async (req, res) => {
-    const connection = await dbConnect();
-    if (connection) {
-        try {
-            const [users] = await connection.execute("SELECT * FROM user");
-            res.json(users);
-        } catch (error) {
-            console.error(error);
-            res.status(500).json({ message: 'Error fetching users' });
-        } finally {
-            connection.end();
-        }
-    } else {
-        res.status(500).json({ message: 'Database connection failed' });
+    let connection;
+    try{
+      connection = await pool.getConnection();;
+      if (connection) {
+          try {
+              const [users] = await connection.execute("SELECT * FROM user");
+              res.json(users);
+          } catch (error) {
+              console.error(error);
+              res.status(500).json({ message: 'Error fetching users' });
+          }finally {
+            if (connection) connection.release();
+          }
+      } else {
+          res.status(500).json({ message: 'Database connection failed' });
+      }
+    }catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Error fetching users' });
+    }finally {
+      if (connection) connection.release();
     }
+    
 });
 
 module.exports = router;
