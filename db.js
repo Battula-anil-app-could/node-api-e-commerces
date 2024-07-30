@@ -43,7 +43,7 @@ const dbConnect = async () => {
     return null;
   }
 };
-// dbConnect()
+dbConnect()
 module.exports = pool;
 
 
